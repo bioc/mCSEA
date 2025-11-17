@@ -103,8 +103,11 @@ mCSEAPlot <- function(mCSEAResults, regionType, dmrName,
   platform <- mCSEAResults[["platform"]]
   
   genome <- ifelse(platform == "EPICv2", "hg38", "hg19") # new variable
-  bands <- ifelse(platform == "EPICv2", mCSEAdata::bandTablehg38, mCSEAdata::bandTablehg19) # new variable
-  
+  if (platform == "EPICv2") {
+      bands <- mCSEAdata::bandTablehg38
+  } else {
+      bands <- mCSEAdata::bandTablehg19
+  }  
   # Get the appropiate association
   
   regionType <- match.arg(regionType, choices=c("promoters", "genes", "CGI",
