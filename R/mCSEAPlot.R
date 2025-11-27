@@ -44,389 +44,406 @@
 
 
 mCSEAPlot <- function(mCSEAResults, regionType, dmrName,
-                        extend = 1000,
-                        chromosome = TRUE, leadingEdge = TRUE, CGI = FALSE,
-                        genes = TRUE, transcriptAnnotation = "transcript",
-                        makePDF = TRUE, 
-                        col = c("blue", "magenta", "green", "red", "black")){
-
-    progress <- utils::txtProgressBar(min=0, max=10, style=3)
-
-    # Check input objects
-
-    if (any(class(mCSEAResults) != "list" | length(mCSEAResults) < 5)){
-        stop("mCSEAResults must be the object generated
+                      extend = 1000,
+                      chromosome = TRUE, leadingEdge = TRUE, CGI = FALSE,
+                      genes = TRUE, transcriptAnnotation = "transcript",
+                      makePDF = TRUE, 
+                      col = c("blue", "magenta", "green", "red", "black")){
+  
+  progress <- utils::txtProgressBar(min=0, max=10, style=3)
+  
+  # Check input objects
+  
+  if (any(class(mCSEAResults) != "list" | length(mCSEAResults) < 5)){
+    stop("mCSEAResults must be the object generated
                 by mCSEATest function")
+  }
+  
+  if (class(dmrName) != "character"){
+    stop("dmrName must be a character object")
+  }
+  
+  if (any(class(extend) != "numeric" | extend < 0)){
+    stop("extend must be a positive number")
+  }
+  
+  if (class(transcriptAnnotation) != "character"){
+    stop("transcriptAnnotation must be a character object")
+  }
+  
+  if (class(chromosome) != "logical"){
+    stop("chromosome must be a logical object (TRUE/FALSE)")
+  }
+  
+  if (class(leadingEdge) != "logical"){
+    stop("leadingEdge must be a logical object (TRUE/FALSE)")
+  }
+  
+  if (class(CGI) != "logical"){
+    stop("CGI must be a logical object (TRUE/FALSE)")
+  }
+  
+  if (class(genes) != "logical"){
+    stop("genes must be a logical object (TRUE/FALSE)")
+  }
+  
+  if (class(makePDF) != "logical"){
+    stop("makePDF must be a logical object (TRUE/FALSE)")
+  }
+  if (!is.vector(col)){
+    stop("col must be a character or numeric vector")
+  }
+  
+  transcriptAnnotation <- match.arg(transcriptAnnotation,
+                                    choices=c("transcript", "symbol",
+                                              "gene", "exon", "feature"))
+  
+  pheno <- mCSEAResults[["pheno"]]
+  methData <- mCSEAResults[["methData"]]
+  platform <- mCSEAResults[["platform"]]
+  
+  genome <- ifelse(platform == "EPICv2", "hg38", "hg19") # new variable
+  if (platform == "EPICv2") {
+      bands <- mCSEAdata::bandTablehg38
+  } else {
+      bands <- mCSEAdata::bandTablehg19
+  }  
+  # Get the appropiate association
+  
+  regionType <- match.arg(regionType, choices=c("promoters", "genes", "CGI",
+                                                "custom"))
+  
+  assoc <- mCSEAResults[[paste(regionType, "association", sep="_")]]
+  
+  leadingCpGs <- strsplit(mCSEAResults[[regionType]]
+                          [dmrName, "leadingEdge"],", ")[[1]]
+  
+  cgs.plot <- assoc[[dmrName]]
+  
+  CpGs <- methData[cgs.plot,]
+  
+  utils::setTxtProgressBar(progress, 1)
+  
+  if (platform == "450k") {
+    utils::setTxtProgressBar(progress, 2)
+    annot <- mCSEAdata::annot450K
+  } else if (platform == "EPIC") {
+    utils::setTxtProgressBar(progress, 2)
+    annot <- mCSEAdata::annotEPIC
+  } else{ # set up
+    utils::setTxtProgressBar(progress, 2)
+    annot <- mCSEAdata::annotEPICv2
+  }
+  
+  utils::setTxtProgressBar(progress, 3)
+  
+  positions <- IRanges::start(IRanges::ranges(annot[c(cgs.plot),]))
+  Chromosome <- as.character(GenomicRanges::seqnames(annot[c(cgs.plot[1])]))
+  From <- min(positions) - extend
+  To <- max(positions) + extend
+  
+  #Check for annotation
+  annotSubset <- annot[names(annot) %in% cgs.plot,]
+  probes <- names(annotSubset)
+  
+  Phenotype <- factor(as.character(pheno[,1]))
+  
+  
+  # Subset data
+  dataSubset <- methData[na.omit(match(probes, rownames(methData))),]
+  
+  utils::setTxtProgressBar(progress, 4)
+  
+  if (chromosome) {
+    #Ideogram
+    itrack <- Gviz::IdeogramTrack(genome=genome, chromosome=Chromosome, #set up
+                                  bands=bands)
+    #Genome axis
+    gtrack <- Gviz::GenomeAxisTrack() 
+  }
+  utils::setTxtProgressBar(progress, 5)
+  
+  
+  if (genes){
+    #Genes track from UCSC
+    
+    # set up accession to biomart
+    if (platform == "EPICv2"){
+      bm <- biomaRt::useMart(biomart="ENSEMBL_MART_ENSEMBL", 
+                             dataset="hsapiens_gene_ensembl")
+      
+    } else{
+      bm <- biomaRt::useMart(host="https://grch37.ensembl.org", # modified due to warning
+                             biomart="ENSEMBL_MART_ENSEMBL", 
+                             dataset="hsapiens_gene_ensembl")
     }
-
-    if (class(dmrName) != "character"){
-        stop("dmrName must be a character object")
-    }
-
-    if (any(class(extend) != "numeric" | extend < 0)){
-        stop("extend must be a positive number")
-    }
-
-    if (class(transcriptAnnotation) != "character"){
-        stop("transcriptAnnotation must be a character object")
-    }
-
-    if (class(chromosome) != "logical"){
-        stop("chromosome must be a logical object (TRUE/FALSE)")
-    }
-
-    if (class(leadingEdge) != "logical"){
-        stop("leadingEdge must be a logical object (TRUE/FALSE)")
-    }
-
-    if (class(CGI) != "logical"){
-        stop("CGI must be a logical object (TRUE/FALSE)")
-    }
-
-    if (class(genes) != "logical"){
-        stop("genes must be a logical object (TRUE/FALSE)")
-    }
-
-    if (class(makePDF) != "logical"){
-        stop("makePDF must be a logical object (TRUE/FALSE)")
-    }
-    if (!is.vector(col)){
-        stop("col must be a character or numeric vector")
-    }
-
-    transcriptAnnotation <- match.arg(transcriptAnnotation,
-                                        choices=c("transcript", "symbol",
-                                                "gene", "exon", "feature"))
-
-    pheno <- mCSEAResults[["pheno"]]
-    methData <- mCSEAResults[["methData"]]
-    platform <- mCSEAResults[["platform"]]
-
-
-
-    # Get the appropiate association
-
-    regionType <- match.arg(regionType, choices=c("promoters", "genes", "CGI",
-                                                    "custom"))
-
-    assoc <- mCSEAResults[[paste(regionType, "association", sep="_")]]
-
-    leadingCpGs <- strsplit(mCSEAResults[[regionType]]
-                            [dmrName, "leadingEdge"],", ")[[1]]
-
-    cgs.plot <- assoc[[dmrName]]
-
-    CpGs <- methData[cgs.plot,]
-
-    utils::setTxtProgressBar(progress, 1)
-
-    if (platform == "450k") {
-        utils::setTxtProgressBar(progress, 2)
-        annot <- mCSEAdata::annot450K
-    }
-    else {
-        utils::setTxtProgressBar(progress, 2)
-        annot <- mCSEAdata::annotEPIC
-    }
-
-    utils::setTxtProgressBar(progress, 3)
-
-    positions <- IRanges::start(IRanges::ranges(annot[c(cgs.plot),]))
-    Chromosome <- as.character(GenomicRanges::seqnames(annot[c(cgs.plot[1])]))
-    From <- min(positions) - extend
-    To <- max(positions) + extend
-
-    #Check for annotation
-    annotSubset <- annot[names(annot) %in% cgs.plot,]
-    probes <- names(annotSubset)
-
-    Phenotype <- factor(as.character(pheno[,1]))
-
-
-    # Subset data
-    dataSubset <- methData[na.omit(match(probes, rownames(methData))),]
-
-    utils::setTxtProgressBar(progress, 4)
-
-    if (chromosome) {
-        #Ideogram
-        itrack <- Gviz::IdeogramTrack(genome="hg19", chromosome=Chromosome,
-                                    bands=mCSEAdata::bandTable)
-
-        #Genome axis
-        gtrack <- Gviz::GenomeAxisTrack()
-    }
-    utils::setTxtProgressBar(progress, 5)
-
-
-    if (genes){
-        #Genes track from UCSC
-        bm <- biomaRt::useMart(host="grch37.ensembl.org", 
-                                biomart="ENSEMBL_MART_ENSEMBL", 
-                                dataset="hsapiens_gene_ensembl")
-        biomTrack <- Gviz::BiomartGeneRegionTrack(genome="hg19",
-                                                chromosome=Chromosome,
-                                                start=From, end=To ,
-                                                name="ENSEMBL annotation",
-                                                stacking="squish",
-                                                just.group="above",
-                                                transcriptAnnotation=
-                                                    transcriptAnnotation,
-                                                biomart=bm)
-    }
-    utils::setTxtProgressBar(progress, 6)
-
-
-    #CpG islands
-    if(CGI) {
-        cpgIslands <- Gviz::UcscTrack(genome="hg19", chromosome=Chromosome,
-                                    track="cpgIslandExt", from=From,
-                                    to=To,
-                                    trackType="AnnotationTrack",
-                                    start="chromStart", end="chromEnd",
-                                    showId=FALSE, shape="box",
-                                    fill="#006400", name="CpG Islands")
-    }
-    utils::setTxtProgressBar(progress, 7)
-
-    #Data track
-    annotSubset <- annotSubset[match(rownames(dataSubset),
-                                    names(annotSubset)),]
-
-    #Reorder columns
-    dataSubsetOrdered <- dataSubset[,order(Phenotype)]
-    phenotypeOrdered <- Phenotype[order(Phenotype)]
-
-    nSamples <- nrow(dataSubsetOrdered)
-
-    #Place data
-    dataValues <- data.frame(c(data.frame(annotSubset)[,c("start","start",
+    biomTrack <- Gviz::BiomartGeneRegionTrack(genome=genome,  # set up
+                                              chromosome=Chromosome,
+                                              start=From, end=To ,
+                                              name="ENSEMBL annotation",
+                                              stacking="squish",
+                                              just.group="above",
+                                              transcriptAnnotation=
+                                                transcriptAnnotation,
+                                              biomart=bm)
+    
+    
+    
+  }
+  utils::setTxtProgressBar(progress, 6)
+  
+  
+  #CpG islands
+  if(CGI) {
+    cpgIslands <- Gviz::UcscTrack(genome=genome, chromosome=Chromosome, # set up
+                                  track="cpgIslandExt", from=From,
+                                  to=To,
+                                  trackType="AnnotationTrack",
+                                  start="chromStart", end="chromEnd",
+                                  showId=FALSE, shape="box",
+                                  fill="#006400", name="CpG Islands")
+  }
+  utils::setTxtProgressBar(progress, 7)
+  
+  #Data track
+  annotSubset <- annotSubset[match(rownames(dataSubset),
+                                   names(annotSubset)),]
+  
+  #Reorder columns
+  dataSubsetOrdered <- dataSubset[,order(Phenotype)]
+  phenotypeOrdered <- Phenotype[order(Phenotype)]
+  
+  nSamples <- nrow(dataSubsetOrdered)
+  
+  #Place data
+  dataValues <- data.frame(c(data.frame(annotSubset)[,c("start","start",
                                                         "seqnames")]),
-                            as.data.frame(dataSubsetOrdered))
-    rownames(dataValues) <- rownames(dataSubsetOrdered)
-    colnames(dataValues)[1] <- "start"
-    colnames(dataValues)[2] <- "end"
-    colnames(dataValues)[3] <- "chromosome"
-    dataValues[2] <- dataValues[2] + 1
-
-    if (length(col) < nlevels(phenotypeOrdered)){
-        stop("You specified less colors than phenotype classes")
-    }
-
-    dtrack <- Gviz::DataTrack(dataValues, genome="hg19",
+                           as.data.frame(dataSubsetOrdered))
+  rownames(dataValues) <- rownames(dataSubsetOrdered)
+  colnames(dataValues)[1] <- "start"
+  colnames(dataValues)[2] <- "end"
+  colnames(dataValues)[3] <- "chromosome"
+  dataValues[2] <- dataValues[2] + 1
+  
+  if (length(col) < nlevels(phenotypeOrdered)){
+    stop("You specified less colors than phenotype classes")
+  }
+  
+  dtrack <- Gviz::DataTrack(dataValues, genome=genome, #set up
                             type=c("g","p","a"),
                             name="DNA Methylation",
                             groups=phenotypeOrdered,
                             col = col)
-    utils::setTxtProgressBar(progress, 8)
-
-
-    if (leadingEdge){
-
-        leadingValues <- data.frame(c(dataValues[,seq_len(3)]), -1,
-                                    row.names=rownames(dataValues))
-
-        for (site in rownames(leadingValues)) {
-            if (site %in% leadingCpGs){
-                leadingValues[site,4] <- 1
-            }
-        }
-
-        if (sum(leadingValues[,4]) == nrow(leadingValues)) {
-            dtrack2 <- Gviz::DataTrack(leadingValues, genome="hg19",
-                                    type="heatmap",
-                                    name="KS leading edge",
-                                    ncolor=2, gradient=c("green", "red"),
-                                    showAxis=FALSE)
-        }
-
-        else {
-            dtrack2 <- Gviz::DataTrack(leadingValues, genome="hg19",
-                                    type="heatmap",
-                                    name="KS leading edge",
-                                    ncolor=2, gradient=c("red", "green"),
-                                    showAxis=FALSE)
-        }
+  
+  utils::setTxtProgressBar(progress, 8)
+  
+  
+  if (leadingEdge){
+    
+    leadingValues <- data.frame(c(dataValues[,seq_len(3)]), -1,
+                                row.names=rownames(dataValues))
+    
+    for (site in rownames(leadingValues)) {
+      if (site %in% leadingCpGs){
+        leadingValues[site,4] <- 1
+      }
     }
-    utils::setTxtProgressBar(progress, 9)
-
-
-
-    #Scale PDF
-
+    
+    if (sum(leadingValues[,4]) == nrow(leadingValues)) {
+      dtrack2 <- Gviz::DataTrack(leadingValues, genome=genome, #set up
+                                 type="heatmap",
+                                 name="KS leading edge",
+                                 ncolor=2, gradient=c("green", "red"),
+                                 showAxis=FALSE)
+    }
+    
+    else {
+      dtrack2 <- Gviz::DataTrack(leadingValues, genome=genome, #set up
+                                 type="heatmap",
+                                 name="KS leading edge",
+                                 ncolor=2, gradient=c("red", "green"),
+                                 showAxis=FALSE)
+    }
+  }
+  utils::setTxtProgressBar(progress, 9)
+  
+  
+  
+  #Scale PDF
+  
+  if (genes){
+    lengthGenes <- length(unique(GenomicRanges::restrict(attr(
+      biomTrack, "range"), From, To)$transcript))
+    heightPdf <- sum(chromosome, CGI, leadingEdge) + 0.5*lengthGenes + 1
+    heightGeneTrack <- 2 + 0.5*lengthGenes
+  }
+  
+  else {
+    heightPdf <- sum(chromosome, CGI, leadingEdge, genes) + 2
+  }
+  
+  if (makePDF){
+    pdf(paste0(dmrName,".pdf"), height=heightPdf)
+  }
+  
+  # Plot tracks
+  
+  if (chromosome) {
+    if (leadingEdge & CGI & genes){
+      Gviz::plotTracks(list(itrack, gtrack, dtrack, dtrack2, cpgIslands,
+                            biomTrack),
+                       from=From, to=To,
+                       background.panel="#FFFFFF",
+                       background.title="darkblue", lwd=1,
+                       legend=TRUE,
+                       sizes=c(0.5,1,3,1,2,heightGeneTrack),
+                       background.panel="white",
+                       background.title="#2e2e2e")
+    }
+    else if (CGI & genes){
+      Gviz::plotTracks(list(itrack, gtrack, dtrack,
+                            cpgIslands, biomTrack),
+                       from=From, to=To, background.panel="#FFFFFF",
+                       background.title="darkblue", lwd=1,
+                       legend=TRUE,
+                       sizes=c(0.5,1,3,2,heightGeneTrack),
+                       background.panel="white",
+                       background.title="#2e2e2e")
+    }
+    else if (leadingEdge & genes){
+      Gviz::plotTracks(list(itrack, gtrack, dtrack, dtrack2, biomTrack),
+                       from=From, to=To, background.panel="#FFFFFF",
+                       background.title="darkblue", lwd=1,
+                       legend=TRUE,
+                       sizes=c(0.5,1,3,1,heightGeneTrack),
+                       background.panel="white",
+                       background.title="#2e2e2e")
+    }
+    else if (leadingEdge & CGI){
+      Gviz::plotTracks(list(itrack, gtrack, dtrack, dtrack2, cpgIslands),
+                       from=From, to=To, background.panel="#FFFFFF",
+                       background.title="darkblue", lwd=1,
+                       legend=TRUE,
+                       sizes=c(0.5,1,3,1,2), background.panel="white",
+                       background.title="#2e2e2e")
+    }
+    else if (leadingEdge){
+      Gviz::plotTracks(list(itrack, gtrack, dtrack, dtrack2), from=From,
+                       to=To, background.panel="#FFFFFF",
+                       background.title="darkblue", lwd=1,
+                       legend=TRUE,
+                       sizes=c(0.5,1,3,1), background.panel="white",
+                       background.title="#2e2e2e")
+    }
+    else if (CGI){
+      Gviz::plotTracks(list(itrack, gtrack, dtrack, cpgIslands),
+                       from=From,
+                       to=To, background.panel="#FFFFFF",
+                       background.title="darkblue", lwd=1,
+                       legend=TRUE,
+                       sizes=c(0.5,1,3,2), background.panel="white",
+                       background.title="#2e2e2e")
+    }
+    else if (genes){
+      Gviz::plotTracks(list(itrack, gtrack, dtrack, biomTrack),
+                       from=From,
+                       to=To, background.panel="#FFFFFF",
+                       background.title="darkblue", lwd=1,
+                       legend=TRUE,
+                       sizes=c(0.5,1,3,heightGeneTrack),
+                       background.panel="white",
+                       background.title="#2e2e2e")
+    }
+    else {
+      Gviz::plotTracks(list(itrack, gtrack, dtrack), from=From, to=To,
+                       background.panel="#FFFFFF",
+                       background.title="darkblue", lwd=1,
+                       legend=TRUE,
+                       sizes=c(0.5,1,3), background.panel="white",
+                       background.title="#2e2e2e")
+    }
+  }
+  
+  else if (leadingEdge) {
+    if (CGI & genes){
+      Gviz::plotTracks(list(dtrack, dtrack2, cpgIslands, biomTrack),
+                       from=From, to=To, background.panel="#FFFFFF",
+                       background.title="darkblue", lwd=1,
+                       legend=TRUE,
+                       sizes=c(3,1,2,heightGeneTrack),
+                       background.panel="white",
+                       background.title="#2e2e2e")
+    }
+    else if (genes){
+      Gviz::plotTracks(list(dtrack, dtrack2, biomTrack), from=From,
+                       to=To,
+                       background.panel="#FFFFFF",
+                       background.title="darkblue", lwd=1,
+                       legend=TRUE,
+                       sizes=c(3,1,heightGeneTrack),
+                       background.panel="white",
+                       background.title="#2e2e2e")
+    }
+    else if (CGI){
+      Gviz::plotTracks(list(dtrack, dtrack2, cpgIslands), from=From,
+                       to=To,
+                       background.panel="#FFFFFF",
+                       background.title="darkblue", lwd=1,
+                       legend=TRUE,
+                       sizes=c(3,1,2), background.panel="white",
+                       background.title="#2e2e2e")
+    }
+    else {
+      Gviz::plotTracks(list(dtrack, dtrack2), from=From, to=To,
+                       background.panel="#FFFFFF",
+                       background.title="darkblue", lwd=1,
+                       legend=TRUE,
+                       sizes=c(3,1), background.panel="white",
+                       background.title="#2e2e2e")
+    }
+  }
+  
+  else if (CGI) {
     if (genes){
-        lengthGenes <- length(unique(GenomicRanges::restrict(attr(
-            biomTrack, "range"), From, To)$transcript))
-        heightPdf <- sum(chromosome, CGI, leadingEdge) + 0.5*lengthGenes + 1
-        heightGeneTrack <- 2 + 0.5*lengthGenes
+      Gviz::plotTracks(list(dtrack, cpgIslands, biomTrack), from=From,
+                       to=To, background.panel="#FFFFFF",
+                       background.title="darkblue", lwd=1,
+                       legend=TRUE,
+                       sizes=c(3,2,heightGeneTrack),
+                       background.panel="white",
+                       background.title="#2e2e2e")
     }
-
     else {
-        heightPdf <- sum(chromosome, CGI, leadingEdge, genes) + 2
+      Gviz::plotTracks(list(dtrack, cpgIslands), from=From, to=To,
+                       background.panel="#FFFFFF",
+                       background.title="darkblue", lwd=1,
+                       legend=TRUE,
+                       sizes=c(3,2), background.panel="white",
+                       background.title="#2e2e2e")
     }
-
-    if (makePDF){
-        pdf(paste0(dmrName,".pdf"), height=heightPdf)
-    }
-
-    # Plot tracks
-
-    if (chromosome) {
-        if (leadingEdge & CGI & genes){
-            Gviz::plotTracks(list(itrack, gtrack, dtrack, dtrack2, cpgIslands,
-                                biomTrack),
-                            from=From, to=To,
-                            background.panel="#FFFFFF",
-                            background.title="darkblue", lwd=1,
-                            legend=TRUE,
-                            sizes=c(0.5,1,3,1,2,heightGeneTrack),
-                            background.panel="white",
-                            background.title="#2e2e2e")
-        }
-        else if (CGI & genes){
-            Gviz::plotTracks(list(itrack, gtrack, dtrack,
-                                cpgIslands, biomTrack),
-                            from=From, to=To, background.panel="#FFFFFF",
-                            background.title="darkblue", lwd=1,
-                            legend=TRUE,
-                            sizes=c(0.5,1,3,2,heightGeneTrack),
-                            background.panel="white",
-                            background.title="#2e2e2e")
-        }
-        else if (leadingEdge & genes){
-            Gviz::plotTracks(list(itrack, gtrack, dtrack, dtrack2, biomTrack),
-                            from=From, to=To, background.panel="#FFFFFF",
-                            background.title="darkblue", lwd=1,
-                            legend=TRUE,
-                            sizes=c(0.5,1,3,1,heightGeneTrack),
-                            background.panel="white",
-                            background.title="#2e2e2e")
-        }
-        else if (leadingEdge & CGI){
-            Gviz::plotTracks(list(itrack, gtrack, dtrack, dtrack2, cpgIslands),
-                            from=From, to=To, background.panel="#FFFFFF",
-                            background.title="darkblue", lwd=1,
-                            legend=TRUE,
-                            sizes=c(0.5,1,3,1,2), background.panel="white",
-                            background.title="#2e2e2e")
-        }
-        else if (leadingEdge){
-            Gviz::plotTracks(list(itrack, gtrack, dtrack, dtrack2), from=From,
-                            to=To, background.panel="#FFFFFF",
-                            background.title="darkblue", lwd=1,
-                            legend=TRUE,
-                            sizes=c(0.5,1,3,1), background.panel="white",
-                            background.title="#2e2e2e")
-        }
-        else if (CGI){
-            Gviz::plotTracks(list(itrack, gtrack, dtrack, cpgIslands),
-                            from=From,
-                            to=To, background.panel="#FFFFFF",
-                            background.title="darkblue", lwd=1,
-                            legend=TRUE,
-                            sizes=c(0.5,1,3,2), background.panel="white",
-                            background.title="#2e2e2e")
-        }
-        else if (genes){
-            Gviz::plotTracks(list(itrack, gtrack, dtrack, biomTrack),
-                            from=From,
-                            to=To, background.panel="#FFFFFF",
-                            background.title="darkblue", lwd=1,
-                            legend=TRUE,
-                            sizes=c(0.5,1,3,heightGeneTrack),
-                            background.panel="white",
-                            background.title="#2e2e2e")
-        }
-        else {
-            Gviz::plotTracks(list(itrack, gtrack, dtrack), from=From, to=To,
-                            background.panel="#FFFFFF",
-                            background.title="darkblue", lwd=1,
-                            legend=TRUE,
-                            sizes=c(0.5,1,3), background.panel="white",
-                            background.title="#2e2e2e")
-        }
-    }
-
-    else if (leadingEdge) {
-        if (CGI & genes){
-            Gviz::plotTracks(list(dtrack, dtrack2, cpgIslands, biomTrack),
-                            from=From, to=To, background.panel="#FFFFFF",
-                            background.title="darkblue", lwd=1,
-                            legend=TRUE,
-                            sizes=c(3,1,2,heightGeneTrack),
-                            background.panel="white",
-                            background.title="#2e2e2e")
-        }
-        else if (genes){
-            Gviz::plotTracks(list(dtrack, dtrack2, biomTrack), from=From,
-                            to=To,
-                            background.panel="#FFFFFF",
-                            background.title="darkblue", lwd=1,
-                            legend=TRUE,
-                            sizes=c(3,1,heightGeneTrack),
-                            background.panel="white",
-                            background.title="#2e2e2e")
-        }
-        else if (CGI){
-            Gviz::plotTracks(list(dtrack, dtrack2, cpgIslands), from=From,
-                            to=To,
-                            background.panel="#FFFFFF",
-                            background.title="darkblue", lwd=1,
-                            legend=TRUE,
-                            sizes=c(3,1,2), background.panel="white",
-                            background.title="#2e2e2e")
-        }
-        else {
-            Gviz::plotTracks(list(dtrack, dtrack2), from=From, to=To,
-                            background.panel="#FFFFFF",
-                            background.title="darkblue", lwd=1,
-                            legend=TRUE,
-                            sizes=c(3,1), background.panel="white",
-                            background.title="#2e2e2e")
-        }
-    }
-
-    else if (CGI) {
-        if (genes){
-            Gviz::plotTracks(list(dtrack, cpgIslands, biomTrack), from=From,
-                            to=To, background.panel="#FFFFFF",
-                            background.title="darkblue", lwd=1,
-                            legend=TRUE,
-                            sizes=c(3,2,heightGeneTrack),
-                            background.panel="white",
-                            background.title="#2e2e2e")
-        }
-        else {
-            Gviz::plotTracks(list(dtrack, cpgIslands), from=From, to=To,
-                            background.panel="#FFFFFF",
-                            background.title="darkblue", lwd=1,
-                            legend=TRUE,
-                            sizes=c(3,2), background.panel="white",
-                            background.title="#2e2e2e")
-        }
-    }
-
-    else if (genes) {
-        Gviz::plotTracks(list(dtrack, biomTrack), from=From, to=To,
-                        background.panel="#FFFFFF",
-                        background.title="darkblue", lwd=1, legend=TRUE,
-                        sizes=c(3,heightGeneTrack),
-                        background.panel="white",
-                        background.title="#2e2e2e")
-    }
-
-    else {
-        Gviz::plotTracks(list(dtrack), from=From, to=To,
-                        background.panel="#FFFFFF",
-                        background.title="darkblue", lwd=1, legend=TRUE,
-                        sizes=c(3), background.panel="white",
-                        background.title="#2e2e2e")
-    }
-
-    if (makePDF){
-        dev.off()
-    }
-
-    utils::setTxtProgressBar(progress, 10)
-
+  }
+  
+  else if (genes) {
+    Gviz::plotTracks(list(dtrack, biomTrack), from=From, to=To,
+                     background.panel="#FFFFFF",
+                     background.title="darkblue", lwd=1, legend=TRUE,
+                     sizes=c(3,heightGeneTrack),
+                     background.panel="white",
+                     background.title="#2e2e2e")
+  }
+  
+  else {
+    Gviz::plotTracks(list(dtrack), from=From, to=To,
+                     background.panel="#FFFFFF",
+                     background.title="darkblue", lwd=1, legend=TRUE,
+                     sizes=c(3), background.panel="white",
+                     background.title="#2e2e2e")
+  }
+  
+  if (makePDF){
+    dev.off()
+  }
+  
+  utils::setTxtProgressBar(progress, 10)
+  
 }
